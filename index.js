@@ -263,42 +263,33 @@ async function startVerification(interaction, twitchLogin) {
   });
 }
 
-// ── EventSub ──────────────────────────────────────────────────────────────────
+
+// ── Follower Polling ──────────────────────────────────────────────────────────
+async function pollFollowers() {
+  try {
+    const linkedUsers = db.db.prepare('SELECT * FROM links').all();
+    for (const user of linkedUsers) {
+      const following = await isFollowing(user.twitch_id);
+      const wasFollowing = user.is_following === 1;
+      if (following && !wasFollowing) {
+        db.setFollowing(user.twitch_id, true);
+        await giveRole(user.discord_id);
+        console.log(`Polling: ${user.twitch_login} folgt jetzt - Rolle vergeben.`);
+      } else if (!following && wasFollowing) {
+        db.setFollowing(user.twitch_id, false);
+        await removeRole(user.discord_id);
+        console.log(`Polling: ${user.twitch_login} folgt nicht mehr - Rolle entfernt.`);
+      }
+    }
+  } catch (err) {
+    console.error('Polling Fehler:', err.message);
+  }
+}
+
 async function subscribeToFollows() {
-  const token       = await getTwitchToken();
-  const callbackUrl = `${process.env.PUBLIC_URL}/webhook/twitch`;
-
-  const existing = await twitchGet('/eventsub/subscriptions');
-  for (const sub of (existing.data ?? [])) {
-    await fetch(`https://api.twitch.tv/helix/eventsub/subscriptions?id=${sub.id}`, {
-      method: 'DELETE',
-      headers: { 'Client-ID': process.env.TWITCH_CLIENT_ID, 'Authorization': `Bearer ${token}` },
-    });
-  }
-
-  for (const type of ['channel.follow']) {
-    const res  = await fetch('https://api.twitch.tv/helix/eventsub/subscriptions', {
-      method: 'POST',
-      headers: {
-        'Client-ID': process.env.TWITCH_CLIENT_ID,
-        'Authorization': `Bearer ${token}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        type, version: '2',
-        condition: {
-          broadcaster_user_id: process.env.TWITCH_FRIEND_BROADCASTER_ID,
-          moderator_user_id:   process.env.TWITCH_FRIEND_BROADCASTER_ID,
-        },
-        transport: { method: 'webhook', callback: callbackUrl, secret: process.env.WEBHOOK_SECRET },
-      }),
-    });
-    const data = await res.json();
-    console.log(data.data?.[0]?.status === 'webhook_callback_verification_pending'
-      ? `✅ EventSub: ${type}`
-      : `❌ EventSub Fehler (${type}): ${JSON.stringify(data)}`
-    );
-  }
+  console.log('Follower-Polling gestartet (alle 10 Sekunden).');
+  setInterval(pollFollowers, 10_000);
+  await pollFollowers();
 }
 
 // ── Webhook server ────────────────────────────────────────────────────────────

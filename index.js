@@ -103,38 +103,33 @@ async function removeRole(discordUserId) {
   } catch (err) { console.error('removeRole:', err.message); }
 }
 
-// ── Twitch IRC Chat Reader ─────────────────────────────────────────────────────
-let ircSocket = null;
-
+// ── Twitch Chat via WebSocket (TMI) ──────────────────────────────────────────
 function connectTwitchIRC() {
-  const tls = require('tls');
-  ircSocket = tls.connect(6697, 'irc.chat.twitch.tv', { rejectUnauthorized: false }, () => {
-    console.log('🔌 Twitch IRC verbunden (SSL).');
-    const oauthToken = process.env.TWITCH_BOT_OAUTH.startsWith('oauth:') ? process.env.TWITCH_BOT_OAUTH : `oauth:${process.env.TWITCH_BOT_OAUTH}`;
-    ircSocket.write(`CAP REQ :twitch.tv/tags twitch.tv/commands\r\n`);
-    ircSocket.write(`PASS ${oauthToken}\r\n`);
-    ircSocket.write(`NICK ${process.env.TWITCH_BOT_USERNAME}\r\n`);
-    ircSocket.write(`JOIN #${process.env.TWITCH_CHANNEL_NAME}\r\n`);
+  const WebSocket = require('ws');
+  const oauthToken = process.env.TWITCH_BOT_OAUTH.startsWith('oauth:')
+    ? process.env.TWITCH_BOT_OAUTH
+    : `oauth:${process.env.TWITCH_BOT_OAUTH}`;
+
+  const ws = new WebSocket('wss://irc-ws.chat.twitch.tv:443');
+
+  ws.on('open', () => {
+    console.log('🔌 Twitch Chat WebSocket verbunden.');
+    ws.send('CAP REQ :twitch.tv/tags twitch.tv/commands');
+    ws.send(`PASS ${oauthToken}`);
+    ws.send(`NICK ${process.env.TWITCH_BOT_USERNAME.toLowerCase()}`);
+    ws.send(`JOIN #${process.env.TWITCH_CHANNEL_NAME.toLowerCase()}`);
   });
 
-  let buffer = '';
-  ircSocket.on('data', (data) => {
-    buffer += data.toString();
-    const lines = buffer.split('\r\n');
-    buffer = lines.pop(); // keep incomplete line
-
+  ws.on('message', (raw) => {
+    const lines = raw.toString().split('\r\n').filter(Boolean);
     for (const line of lines) {
-      if (line) console.log('IRC RAW:', line);
+      console.log('IRC RAW:', line);
 
-      // Respond to PING
       if (line.startsWith('PING')) {
-        ircSocket.write('PONG :tmi.twitch.tv\r\n');
+        ws.send('PONG :tmi.twitch.tv');
         continue;
       }
 
-      // Parse PRIVMSG with optional tags
-      // Format with tags: @key=val;key=val :user!user@user.tmi.twitch.tv PRIVMSG #channel :message
-      // Format without:   :user!user@user.tmi.twitch.tv PRIVMSG #channel :message
       let msgId = null;
       let parseLine = line;
 
@@ -153,17 +148,12 @@ function connectTwitchIRC() {
 
       const twitchLogin = match[1].toLowerCase();
       const message     = match[2].trim();
+      console.log(`💬 Chat von ${twitchLogin}: ${message}`);
 
-      console.log(`IRC Nachricht von ${twitchLogin}: ${message}`);
-
-      // Check if message contains a pending verification code
       for (const [pendingLogin, data] of pending.entries()) {
         if (twitchLogin === pendingLogin && message === data.code) {
           if (usedCodes.has(data.code)) break;
-          // Delete the message in Twitch chat
-          if (msgId) {
-            ircSocket.write(`PRIVMSG #${process.env.TWITCH_CHANNEL_NAME} :/delete ${msgId}\r\n`);
-          }
+          if (msgId) ws.send(`PRIVMSG #${process.env.TWITCH_CHANNEL_NAME.toLowerCase()} :/delete ${msgId}`);
           handleVerificationSuccess(pendingLogin, data);
           break;
         }
@@ -171,9 +161,9 @@ function connectTwitchIRC() {
     }
   });
 
-  ircSocket.on('error', (err) => console.error('IRC Fehler:', err.message));
-  ircSocket.on('close', () => {
-    console.log('IRC getrennt — reconnect in 5s...');
+  ws.on('error', (err) => console.error('Chat WS Fehler:', err.message));
+  ws.on('close', () => {
+    console.log('Chat WS getrennt — reconnect in 5s...');
     setTimeout(connectTwitchIRC, 5000);
   });
 }

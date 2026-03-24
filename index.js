@@ -107,9 +107,9 @@ async function removeRole(discordUserId) {
 let ircSocket = null;
 
 function connectTwitchIRC() {
-  ircSocket = new net.Socket();
-  ircSocket.connect(6667, 'irc.chat.twitch.tv', () => {
-    console.log('🔌 Twitch IRC verbunden.');
+  const tls = require('tls');
+  ircSocket = tls.connect(6697, 'irc.chat.twitch.tv', { rejectUnauthorized: false }, () => {
+    console.log('🔌 Twitch IRC verbunden (SSL).');
     const oauthToken = process.env.TWITCH_BOT_OAUTH.startsWith('oauth:') ? process.env.TWITCH_BOT_OAUTH : `oauth:${process.env.TWITCH_BOT_OAUTH}`;
     ircSocket.write(`CAP REQ :twitch.tv/tags twitch.tv/commands\r\n`);
     ircSocket.write(`PASS ${oauthToken}\r\n`);

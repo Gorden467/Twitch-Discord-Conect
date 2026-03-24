@@ -155,32 +155,27 @@ function connectTwitchIRC() {
 }
 
 async function handleVerificationSuccess(twitchLogin, data) {
-  const { discordUserId, interaction, twitchUser, intervalId, timeoutId, code } = data;
+  const { discordUserId, interaction, intervalId, timeoutId, code } = data;
 
-  // Invalidate code immediately so it can't be reused
   usedCodes.add(code);
   clearInterval(intervalId);
   clearTimeout(timeoutId);
   pending.delete(twitchLogin);
 
-  const following = await isFollowing(twitchUser.id);
-  db.linkTwitchAccount(discordUserId, twitchUser.id, twitchUser.login);
-  db.setFollowing(twitchUser.id, following);
+  const twitchUser = await getTwitchUser(twitchLogin);
+  const twitchId   = twitchUser?.id ?? twitchLogin;
 
-  if (following) await giveRole(discordUserId);
+  db.linkTwitchAccount(discordUserId, twitchId, twitchLogin);
+  db.setFollowing(twitchId, false); // keine Rolle direkt, Polling übernimmt das
 
   const successEmbed = new EmbedBuilder()
     .setColor(0x00FF7F)
-    .setTitle('✅ Verifizierung erfolgreich!')
-    .setDescription(
-      following
-        ? `🎉 Du folgst dem Kanal — du hast die **Follower-Rolle** erhalten!`
-        : `✅ Twitch-Account **${twitchUser.login}** verifiziert!\n\nℹ️ Du folgst dem Kanal noch nicht. Folge auf Twitch um die Rolle zu bekommen.`
-    )
-    .setFooter({ text: `Verifiziert als ${twitchUser.login}` });
+    .setTitle('✅ Accounts verknüpft!')
+    .setDescription(`✅ Dein Discord-Account wurde mit Twitch **${twitchLogin}** verknüpft!\n\nℹ️ Sobald du dem Kanal auf Twitch folgst, bekommst du automatisch die Follower-Rolle.`)
+    .setFooter({ text: `Verifiziert als ${twitchLogin}` });
 
   await interaction.editReply({ embeds: [successEmbed] }).catch(() => {});
-  console.log(`✅ ${twitchLogin} verifiziert für Discord-User ${discordUserId}`);
+  console.log(`✅ ${twitchLogin} verknüpft mit Discord-User ${discordUserId} — Rolle wird per Polling vergeben.`);
 }
 
 // ── Verification start ────────────────────────────────────────────────────────
@@ -200,20 +195,9 @@ async function startVerification(interaction, twitchLogin) {
     }
   }
 
-  const twitchUser = await getTwitchUser(twitchLogin);
-  if (!twitchUser) {
-    return interaction.editReply({ content: `❌ Twitch-User **${twitchLogin}** nicht gefunden.` });
-  }
-
-  // Check if this Twitch account is already linked to a different Discord user
-  const existingLink = db.getDiscordUserByTwitch(twitchUser.id);
-  if (existingLink && existingLink !== discordUserId) {
-    return interaction.editReply({ content: `❌ Dieser Twitch-Account ist bereits mit einem anderen Discord-Account verknüpft.` });
-  }
-
   // Check if this Discord user already has a verified account
   const existingDiscordLink = db.getLinkByDiscord(discordUserId);
-  if (existingDiscordLink && existingDiscordLink.twitch_id !== twitchUser.id) {
+  if (existingDiscordLink) {
     return interaction.editReply({
       content: `❌ Du hast bereits **${existingDiscordLink.twitch_login}** verknüpft. Nutze \`/unlink\` zuerst.`
     });
@@ -232,8 +216,7 @@ async function startVerification(interaction, twitchLogin) {
       ``,
       `_Sobald du den Code im Chat schreibst wird die Verifizierung automatisch abgeschlossen._`,
     ].join('\n'))
-    .setThumbnail(`https://static-cdn.jtvnw.net/jtv_user_pictures/${twitchUser.login}-profile_image-70x70.png`)
-    .setFooter({ text: `Twitch: ${twitchUser.login}` });
+    .setFooter({ text: `Twitch: ${twitchLogin}` });
 
   await interaction.editReply({ embeds: [buildEmbed(secondsLeft)] });
 
@@ -259,9 +242,10 @@ async function startVerification(interaction, twitchLogin) {
   }, 60_000);
 
   pending.set(twitchLogin, {
-    code, discordUserId, interaction, twitchUser, intervalId, timeoutId,
+    code, discordUserId, interaction, intervalId, timeoutId,
   });
 }
+
 
 
 // ── Follower Polling ──────────────────────────────────────────────────────────

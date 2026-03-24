@@ -124,6 +124,8 @@ function connectTwitchIRC() {
     buffer = lines.pop(); // keep incomplete line
 
     for (const line of lines) {
+      if (line) console.log('IRC RAW:', line);
+
       // Respond to PING
       if (line.startsWith('PING')) {
         ircSocket.write('PONG :tmi.twitch.tv\r\n');

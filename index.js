@@ -283,11 +283,11 @@ async function pollFollowers() {
       if (following && !wasFollowing) {
         db.setFollowing(user.twitch_id, true);
         await giveRole(user.discord_id);
-        console.log(`Polling: ${user.twitch_login} folgt jetzt - Rolle vergeben.`);
+        console.log(`✅ Polling: ${user.twitch_login} folgt ${process.env.TWITCH_FRIEND_NAME} — Rolle vergeben.`);
       } else if (!following && wasFollowing) {
         db.setFollowing(user.twitch_id, false);
         await removeRole(user.discord_id);
-        console.log(`Polling: ${user.twitch_login} folgt nicht mehr - Rolle entfernt.`);
+        console.log(`🗑️ Polling: ${user.twitch_login} folgt ${process.env.TWITCH_FRIEND_NAME} nicht mehr — Rolle entfernt.`);
       }
     }
   } catch (err) {
@@ -400,8 +400,9 @@ client.on(Events.InteractionCreate, async (interaction) => {
       if (!link) return interaction.editReply({ content: '❌ Kein Twitch-Account verknüpft. Nutze `/verify`.' });
       const following = await isFollowing(link.twitch_id);
       db.setFollowing(link.twitch_id, following);
-      if (following) { await giveRole(interaction.user.id); return interaction.editReply({ content: `✅ Du folgst als **${link.twitch_login}** — Rolle gegeben!` }); }
-      else { await removeRole(interaction.user.id); return interaction.editReply({ content: `ℹ️ Du folgst als **${link.twitch_login}** nicht — Rolle entfernt.` }); }
+      const friendName = process.env.TWITCH_FRIEND_NAME ?? process.env.TWITCH_CHANNEL_NAME;
+      if (following) { await giveRole(interaction.user.id); return interaction.editReply({ content: `✅ Du folgst **${friendName}** als **${link.twitch_login}** — Rolle gegeben!` }); }
+      else { await removeRole(interaction.user.id); return interaction.editReply({ content: `ℹ️ Du folgst **${friendName}** noch nicht als **${link.twitch_login}** — folge ihm auf Twitch um die Rolle zu bekommen!` }); }
     }
   } catch (err) {
     console.error('Interaction Fehler:', err.message);

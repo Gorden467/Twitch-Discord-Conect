@@ -111,6 +111,7 @@ function connectTwitchIRC() {
   ircSocket.connect(6667, 'irc.chat.twitch.tv', () => {
     console.log('🔌 Twitch IRC verbunden.');
     const oauthToken = process.env.TWITCH_BOT_OAUTH.startsWith('oauth:') ? process.env.TWITCH_BOT_OAUTH : `oauth:${process.env.TWITCH_BOT_OAUTH}`;
+    ircSocket.write(`CAP REQ :twitch.tv/tags twitch.tv/commands\r\n`);
     ircSocket.write(`PASS ${oauthToken}\r\n`);
     ircSocket.write(`NICK ${process.env.TWITCH_BOT_USERNAME}\r\n`);
     ircSocket.write(`JOIN #${process.env.TWITCH_CHANNEL_NAME}\r\n`);
@@ -129,17 +130,38 @@ function connectTwitchIRC() {
         continue;
       }
 
-      // Parse PRIVMSG — format: :username!username@username.tmi.twitch.tv PRIVMSG #channel :message
-      const match = line.match(/^:(\w+)!\w+@\w+\.tmi\.twitch\.tv PRIVMSG #\w+ :(.+)$/);
+      // Parse PRIVMSG with optional tags
+      // Format with tags: @key=val;key=val :user!user@user.tmi.twitch.tv PRIVMSG #channel :message
+      // Format without:   :user!user@user.tmi.twitch.tv PRIVMSG #channel :message
+      let msgId = null;
+      let parseLine = line;
+
+      if (line.startsWith('@')) {
+        const spaceIdx = line.indexOf(' ');
+        const tagStr = line.slice(1, spaceIdx);
+        parseLine = line.slice(spaceIdx + 1);
+        for (const tag of tagStr.split(';')) {
+          const [k, v] = tag.split('=');
+          if (k === 'id') msgId = v;
+        }
+      }
+
+      const match = parseLine.match(/^:(\w+)!\w+@\w+\.tmi\.twitch\.tv PRIVMSG #\w+ :(.+)$/);
       if (!match) continue;
 
       const twitchLogin = match[1].toLowerCase();
       const message     = match[2].trim();
 
+      console.log(`IRC Nachricht von ${twitchLogin}: ${message}`);
+
       // Check if message contains a pending verification code
       for (const [pendingLogin, data] of pending.entries()) {
         if (twitchLogin === pendingLogin && message === data.code) {
-          if (usedCodes.has(data.code)) break; // already used — ignore
+          if (usedCodes.has(data.code)) break;
+          // Delete the message in Twitch chat
+          if (msgId) {
+            ircSocket.write(`PRIVMSG #${process.env.TWITCH_CHANNEL_NAME} :/delete ${msgId}\r\n`);
+          }
           handleVerificationSuccess(pendingLogin, data);
           break;
         }
@@ -166,16 +188,27 @@ async function handleVerificationSuccess(twitchLogin, data) {
   const twitchId   = twitchUser?.id ?? twitchLogin;
 
   db.linkTwitchAccount(discordUserId, twitchId, twitchLogin);
-  db.setFollowing(twitchId, false); // keine Rolle direkt, Polling übernimmt das
+  db.setFollowing(twitchId, false);
+
+  // Sofort prüfen ob er schon folgt
+  const alreadyFollowing = await isFollowing(twitchId);
+  if (alreadyFollowing) {
+    db.setFollowing(twitchId, true);
+    await giveRole(discordUserId);
+  }
 
   const successEmbed = new EmbedBuilder()
     .setColor(0x00FF7F)
-    .setTitle('✅ Accounts verknüpft!')
-    .setDescription(`✅ Dein Discord-Account wurde mit Twitch **${twitchLogin}** verknüpft!\n\nℹ️ Sobald du dem Kanal auf Twitch folgst, bekommst du automatisch die Follower-Rolle.`)
+    .setTitle('✅ Verifizierung erfolgreich!')
+    .setDescription(
+      alreadyFollowing
+        ? `🎉 Twitch-Account **${twitchLogin}** verknüpft!\n\nDu folgst dem Kanal bereits — du hast die **Follower-Rolle** erhalten!`
+        : `✅ Twitch-Account **${twitchLogin}** erfolgreich verknüpft!\n\nℹ️ Sobald du dem Kanal auf Twitch folgst, bekommst du automatisch die Follower-Rolle.`
+    )
     .setFooter({ text: `Verifiziert als ${twitchLogin}` });
 
   await interaction.editReply({ embeds: [successEmbed] }).catch(() => {});
-  console.log(`✅ ${twitchLogin} verknüpft mit Discord-User ${discordUserId} — Rolle wird per Polling vergeben.`);
+  console.log(`✅ ${twitchLogin} verknüpft mit Discord-User ${discordUserId}${alreadyFollowing ? ' — Rolle vergeben' : ' — wartet auf Follow'}`);
 }
 
 // ── Verification start ────────────────────────────────────────────────────────

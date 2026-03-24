@@ -276,7 +276,7 @@ async function subscribeToFollows() {
     });
   }
 
-  for (const type of ['channel.follow', 'channel.unfollow']) {
+  for (const type of ['channel.follow']) {
     const res  = await fetch('https://api.twitch.tv/helix/eventsub/subscriptions', {
       method: 'POST',
       headers: {
@@ -287,8 +287,8 @@ async function subscribeToFollows() {
       body: JSON.stringify({
         type, version: '2',
         condition: {
-          broadcaster_user_id: process.env.TWITCH_BROADCASTER_ID,
-          moderator_user_id:   process.env.TWITCH_BROADCASTER_ID,
+          broadcaster_user_id: process.env.TWITCH_FRIEND_BROADCASTER_ID,
+          moderator_user_id:   process.env.TWITCH_FRIEND_BROADCASTER_ID,
         },
         transport: { method: 'webhook', callback: callbackUrl, secret: process.env.WEBHOOK_SECRET },
       }),

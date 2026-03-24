@@ -113,7 +113,7 @@ function connectTwitchIRC() {
     const oauthToken = process.env.TWITCH_BOT_OAUTH.startsWith('oauth:') ? process.env.TWITCH_BOT_OAUTH : `oauth:${process.env.TWITCH_BOT_OAUTH}`;
     ircSocket.write(`PASS ${oauthToken}\r\n`);
     ircSocket.write(`NICK ${process.env.TWITCH_BOT_USERNAME}\r\n`);
-    ircSocket.write(`JOIN #${process.env.TWITCH_VERIFY_CHANNEL}\r\n`);
+    ircSocket.write(`JOIN #${process.env.TWITCH_CHANNEL_NAME}\r\n`);
   });
 
   let buffer = '';

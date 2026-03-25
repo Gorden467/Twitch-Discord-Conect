@@ -69,17 +69,20 @@ async function getTwitchUser(login) {
 }
 
 async function isFollowing(twitchUserId) {
-  // Try new endpoint first (requires moderator token)
-  const data = await twitchGet(
-    `/channels/followers?broadcaster_id=${process.env.TWITCH_FRIEND_BROADCASTER_ID}&user_id=${twitchUserId}`
-  );
-  if (data.error) {
-    // Fallback: check via user's followed channels endpoint
-    const data2 = await twitchGet(
-      `/streams/followed?user_id=${twitchUserId}&broadcaster_id=${process.env.TWITCH_FRIEND_BROADCASTER_ID}`
+  // Use friend's user token if available, otherwise use app token
+  const friendToken = process.env.TWITCH_FRIEND_TOKEN;
+  let data;
+  if (friendToken) {
+    const token = friendToken.startsWith('oauth:') ? friendToken.slice(6) : friendToken;
+    const res = await fetch(
+      `https://api.twitch.tv/helix/channels/followers?broadcaster_id=${process.env.TWITCH_FRIEND_BROADCASTER_ID}&user_id=${twitchUserId}`,
+      { headers: { 'Client-ID': process.env.TWITCH_CLIENT_ID, 'Authorization': `Bearer ${token}` } }
     );
-    console.log('isFollowing fallback response:', JSON.stringify(data2));
-    return (data2.data?.length ?? 0) > 0;
+    data = await res.json();
+  } else {
+    data = await twitchGet(
+      `/channels/followers?broadcaster_id=${process.env.TWITCH_FRIEND_BROADCASTER_ID}&user_id=${twitchUserId}`
+    );
   }
   console.log('isFollowing response:', JSON.stringify(data));
   return (data.total ?? 0) > 0;
